@@ -141,7 +141,7 @@ def emergency_stop():
     global mode
     stop_all()
     mode = STOPPED
-    show('E-STOP', 'Put boards back', 'Press A to restart', 0xFF0000, '')
+    show('E-STOP', 'Put boards back', 'Press A to restart', 0xFF0000)
     print('緊急停止：請把摺板扶回原位，再按 A 重新開始')
 
 def wait_or_stop(ms):
@@ -160,7 +160,7 @@ def wait_or_stop(ms):
 def run_motor(m):
     name = MOTOR_NAME[m]
     print(MOTOR_ZH[m], '翻起', FOLD_MS[m], 'ms')
-    show(name + ' RUN', 'Folding...', 'B: emergency stop', 0xFFFF00, '')
+    show(name + ' RUN', 'Folding...', 'B: emergency stop', 0xFFFF00)
     servo_pulse(m, NEUTRAL_US[m] + FOLD_DIR[m] * SPEED_US[m])
     if not wait_or_stop(FOLD_MS[m]):
         return False
@@ -169,7 +169,7 @@ def run_motor(m):
         return False
 
     print(MOTOR_ZH[m], '放下', RETURN_MS[m], 'ms')
-    show(name + ' RUN', 'Returning...', 'B: emergency stop', 0xFFFF00, '')
+    show(name + ' RUN', 'Returning...', 'B: emergency stop', 0xFFFF00)
     servo_pulse(m, NEUTRAL_US[m] - FOLD_DIR[m] * SPEED_US[m])
     if not wait_or_stop(RETURN_MS[m]):
         return False
@@ -198,7 +198,7 @@ def calibrate(m):
     kB.down = False
     while True:
         servo_pulse(m, us)
-        show(MOTOR_NAME[m] + ' CALIB', 'neutral: %d us' % us, 'A:-5 C:+5 B:exit', 0xFFA500, '')
+        show(MOTOR_NAME[m] + ' CALIB', 'neutral: %d us' % us, 'A:-5 C:+5 B:exit', 0xFFA500)
         print(MOTOR_ZH[m], '停止點 =', us, 'us')
         while True:
             if kA.fast_click():
@@ -220,7 +220,7 @@ try:
         raise OSError('0x40 not found')
     pca_begin()
 except Exception as e:
-    show('NO SERVO2', 'Check module stack', 'then reboot', 0xFF0000, '')
+    show('NO SERVO2', 'Check module stack', 'then reboot', 0xFF0000)
     print('找不到 Servo2（0x40），請檢查模組有沒有疊好，再重開機。錯誤：', e)
     while True:
         time.sleep_ms(1000)
