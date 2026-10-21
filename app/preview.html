@@ -1,0 +1,221 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>雨衣清洗摺衣站（本機預覽）</title>
+<style>
+  :root {
+    --bg: #f4f6f8; --card: #fff; --text: #1c2630; --muted: #6b7885; --line: #dde3e8;
+    --accent: #1f7ae0; --ok: #1a9c5b; --warn: #d98a00; --bad: #d63a3a;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #11161b; --card: #1a2229; --text: #e6ebef; --muted: #8b98a4; --line: #2b353e; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+         font: 16px/1.5 system-ui, "Microsoft JhengHei", sans-serif; }
+  main { max-width: 900px; margin: 0 auto; padding: 16px; }
+  header { display: flex; flex-wrap: wrap; gap: 8px; align-items: baseline; justify-content: space-between; }
+  h1 { font-size: 1.3rem; margin: 0; }
+  .muted { color: var(--muted); font-size: .85rem; }
+  .badge { background: var(--warn); color: #fff; border-radius: 99px; padding: 2px 10px; font-size: .8rem; }
+  .grid { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); margin: 16px 0; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 14px; }
+  .card h2 { font-size: 1rem; margin: 0 0 4px; display: flex; justify-content: space-between; }
+  .bar { height: 10px; background: var(--line); border-radius: 99px; overflow: hidden; margin: 10px 0 4px; }
+  .bar > i { display: block; height: 100%; width: 0; background: var(--accent); transition: width .4s; }
+  .actions { display: flex; gap: 10px; flex-wrap: wrap; margin: 8px 0 16px; }
+  button { font: inherit; border: 0; border-radius: 10px; padding: 12px 18px; min-height: 48px;
+           background: var(--accent); color: #fff; cursor: pointer; }
+  button.stop { background: var(--bad); font-weight: 700; flex: 1; }
+  button.ghost { background: transparent; color: var(--accent); border: 1px solid var(--accent);
+                 min-height: 36px; padding: 6px 12px; }
+  button:disabled { opacity: .45; cursor: not-allowed; }
+  .state-idle { color: var(--muted); } .state-running { color: var(--accent); }
+  .state-estop { color: var(--bad); }
+  .job { border-top: 1px solid var(--line); padding: 10px 0; }
+  .job:first-child { border-top: 0; }
+  .job .row { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .stage-done { color: var(--ok); } .stage-stopped, .stage-cancelled { color: var(--bad); }
+  .stage-wait_move, .stage-wait_fold { color: var(--warn); }
+  details summary { cursor: pointer; color: var(--muted); font-size: .85rem; }
+  .alert { background: var(--bad); color: #fff; padding: 10px 14px; border-radius: 10px; margin-top: 12px; }
+  #toast { position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%); background: #000c;
+           color: #fff; padding: 8px 16px; border-radius: 8px; display: none; }
+  body.phone main { max-width: 390px; border-left: 1px solid var(--line); border-right: 1px solid var(--line); min-height: 100vh; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>雨衣清洗摺衣站 <span id="sim" class="badge" hidden>模擬模式</span></h1>
+    <span><button id="phoneBtn" class="ghost" type="button">手機大小預覽</button> <span class="muted" id="urls"></span></span>
+  </header>
+
+  <div id="estopBanner" class="alert" hidden>
+    緊急停止中。請先把摺板扶回原位，再按「解除緊急停止」。
+  </div>
+
+  <div class="actions">
+    <button id="start">放入雨衣・開始清洗</button>
+    <button id="reset" class="ghost" hidden>解除緊急停止</button>
+    <button id="estop" class="stop">緊急停止</button>
+  </div>
+
+  <h3>站點</h3>
+  <div class="grid" id="stations"></div>
+
+  <h3>任務</h3>
+  <div class="card" id="jobs"><span class="muted">還沒有任務</span></div>
+</main>
+<div id="toast"></div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const STATE_TEXT = { idle: "空閒", running: "運作中" };
+
+function toast(msg) {
+  const t = $("toast"); t.textContent = msg; t.style.display = "block";
+  clearTimeout(toast.h); toast.h = setTimeout(() => (t.style.display = "none"), 2500);
+}
+
+function esc(s) { return String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c])); }
+
+function render(d) {
+  $("sim").hidden = !d.simulated;
+  $("urls").textContent = d.urls[d.urls.length - 1];
+  const estop = d.stations.some((s) => s.estop);
+  $("estopBanner").hidden = !estop;
+  $("reset").hidden = !estop;
+  $("start").disabled = estop || d.stations.find((s) => s.id === "wash").state !== "idle";
+
+  $("stations").innerHTML = d.stations.map((s) => {
+    const label = s.estop ? "緊急停止" : STATE_TEXT[s.state];
+    const cls = s.estop ? "estop" : s.state;
+    const pct = Math.round((s.progress || 0) * 100);
+    return `<div class="card"><h2>${esc(s.name)}<span class="state-${cls}">${label}</span></h2>
+      <div class="muted">${s.job ? "任務 #" + s.job + "　" + esc(s.detail || "") : "累計完成 " + s.count + " 件"}</div>
+      <div class="bar"><i style="width:${s.job ? pct : 0}%"></i></div>
+      ${s.job ? `<div class="muted">${pct}%　累計 ${s.count} 件</div>` : ""}</div>`;
+  }).join("");
+
+  if (!d.jobs.length) { $("jobs").innerHTML = '<span class="muted">還沒有任務</span>'; return; }
+  // 每秒重畫會把展開的「紀錄」收起來，先記住哪些是開的
+  const opened = new Set([...document.querySelectorAll("details[open]")].map((e) => e.dataset.id));
+  $("jobs").innerHTML = d.jobs.map((j) => {
+    const btns = [];
+    if (j.stage === "wait_move") btns.push(["move", "已移到摺衣站"]);
+    if (j.stage === "done" && !j.picked_up) btns.push(["pickup", "已取件"]);
+    if (j.stage === "stopped") btns.push(["retry", "重試"]);
+    if (!["done", "cancelled"].includes(j.stage)) btns.push(["cancel", "取消"]);
+    const log = j.log.map((l) => `${l.t} ${esc(l.text)}`).join("<br>");
+    return `<div class="job"><div class="row">
+      <div><b>#${j.id}</b>　<span class="stage-${j.stage}">${esc(j.text)}${j.picked_up ? "（已取件）" : ""}</span>
+      <span class="muted">　${j.created}</span></div>
+      <div>${btns.map(([a, t]) => `<button class="ghost" data-job="${j.id}" data-act="${a}">${t}</button>`).join(" ")}</div>
+      </div><details data-id="${j.id}" ${opened.has(String(j.id)) ? "open" : ""}><summary>紀錄</summary><div class="muted">${log}</div></details></div>`;
+  }).join("");
+}
+
+
+// ===== 瀏覽器內建模擬引擎（跟 server.py 同一套流程，不需要伺服器） =====
+const Q = new URLSearchParams(location.search);
+const SPEED = parseFloat(Q.get("speed")) || 1;          // 加速：?speed=20
+const WASH_SECONDS = parseInt(Q.get("wash")) || 120;
+const FOLD_STEPS = [0, 1, 0, 2];
+const STEP_S = (297 + 300 + 297 + 500) / 1000;
+const nowS = () => (performance.now() / 1000) * SPEED;
+const stations = {
+  wash: { id: "wash", name: "洗衣站", kind: "wash", state: "idle", job: null, count: 0, estop: false },
+  fold: { id: "fold", name: "摺衣站", kind: "fold", state: "idle", job: null, count: 0, estop: false },
+};
+const jobs = []; let nextId = 1; const timers = {};
+const STAGE_TEXT = { washing: "清洗中", wait_move: "請移到摺衣站", wait_fold: "等摺衣站空出來",
+  folding: "摺衣中", done: "完成，可以取件", stopped: "已緊急停止", cancelled: "已取消" };
+const clock = () => new Date().toLocaleTimeString("zh-TW", { hour12: false });
+const logj = (j, text) => j.log.push({ t: clock(), text });
+const findJob = (id) => jobs.find((j) => j.id === id);
+function startWash(j) { const s = stations.wash; s.state = "running"; s.job = j.id;
+  timers.wash = { start: nowS(), duration: WASH_SECONDS }; j.stage = "washing"; logj(j, "開始清洗"); }
+function startFold(j) { const s = stations.fold; s.state = "running"; s.job = j.id;
+  timers.fold = { step: 0, stepStart: nowS() }; j.stage = "folding"; logj(j, "開始摺衣"); }
+function release(id) { stations[id].state = "idle"; stations[id].job = null; delete timers[id]; }
+function schedule() {
+  if (stations.fold.state === "idle" && !stations.fold.estop) {
+    const j = jobs.find((x) => x.stage === "wait_fold"); if (j) startFold(j);
+  }
+}
+function tick() {
+  const t = nowS(), w = timers.wash, f = timers.fold;
+  if (w && t - w.start >= w.duration) {
+    const j = findJob(stations.wash.job); j.stage = "wait_move"; logj(j, "清洗完成，等待移到摺衣站");
+    release("wash"); stations.wash.count++;
+  }
+  if (f && t - f.stepStart >= STEP_S) {
+    const j = findJob(stations.fold.job); f.step++;
+    if (f.step >= FOLD_STEPS.length) { j.stage = "done"; logj(j, "摺衣完成"); release("fold"); stations.fold.count++; }
+    else f.stepStart = t;
+  }
+  schedule();
+}
+setInterval(tick, 200);
+
+const API = {
+  newJob() {
+    if (stations.wash.state !== "idle" || stations.wash.estop) return "洗衣站忙碌中或在緊急停止狀態";
+    const j = { id: nextId++, stage: "washing", created: clock(), log: [] }; jobs.push(j); startWash(j);
+  },
+  move(id) { const j = findJob(id); if (!j || j.stage !== "wait_move") return "這個任務現在不能移動";
+    j.stage = "wait_fold"; logj(j, "已移到摺衣站"); schedule(); },
+  estop() {
+    for (const [sid, s] of Object.entries(stations)) {
+      const j = s.job ? findJob(s.job) : null;
+      if (j) { j.stage = "stopped"; j.stoppedAt = sid; logj(j, "緊急停止"); }
+      release(sid); s.estop = true;
+    }
+  },
+  reset() { Object.values(stations).forEach((s) => (s.estop = false)); schedule(); },
+  retry(id) { const j = findJob(id); if (!j || j.stage !== "stopped") return "這個任務不能重試";
+    if (Object.values(stations).some((s) => s.estop)) return "請先解除緊急停止";
+    if (j.stoppedAt === "wash") { if (stations.wash.state !== "idle") return "洗衣站忙碌中"; startWash(j); }
+    else { j.stage = "wait_fold"; logj(j, "重試摺衣"); schedule(); } },
+  cancel(id) { const j = findJob(id); if (!j || ["done", "cancelled"].includes(j.stage)) return "這個任務不能取消";
+    for (const [sid, s] of Object.entries(stations)) if (s.job === j.id) release(sid);
+    j.stage = "cancelled"; logj(j, "已取消"); schedule(); },
+  pickup(id) { const j = findJob(id); if (!j || j.stage !== "done") return "還不能取件"; j.picked_up = true; logj(j, "已取件"); },
+};
+
+function snapshot() {
+  const t = nowS();
+  const st = Object.values(stations).map((s) => {
+    const o = { ...s }, tm = timers[s.id];
+    if (tm && s.id === "wash") { const left = Math.max(0, tm.duration - (t - tm.start));
+      o.progress = 1 - left / tm.duration; o.detail = "剩 " + Math.round(left / SPEED) + " 秒"; }
+    else if (tm) { o.progress = (tm.step + Math.min(1, (t - tm.stepStart) / STEP_S)) / FOLD_STEPS.length;
+      o.detail = `第 ${tm.step + 1}/${FOLD_STEPS.length} 步（馬達${"一二三"[FOLD_STEPS[tm.step]]}）`; }
+    return o;
+  });
+  const js = jobs.slice(-30).map((j) => ({ ...j, text: STAGE_TEXT[j.stage] || j.stage })).reverse();
+  return { stations: st, jobs: js, urls: ["（本機預覽，不需要伺服器）"], simulated: true };
+}
+
+function act(name, id) {
+  const err = API[name](id); if (err) toast(err); refresh();
+}
+async function refresh() { render(snapshot()); }
+
+$("start").onclick = () => act("newJob");
+$("estop").onclick = () => act("estop");
+$("reset").onclick = () => act("reset");
+$("jobs").onclick = (e) => {
+  const b = e.target.closest("button[data-job]");
+  if (b) act(b.dataset.act, Number(b.dataset.job));
+};
+$("phoneBtn").onclick = () => document.body.classList.toggle("phone");
+
+refresh();
+setInterval(refresh, 500);
+</script>
+</body>
+</html>

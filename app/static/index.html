@@ -1,0 +1,146 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>雨衣清洗摺衣站</title>
+<style>
+  :root {
+    --bg: #f4f6f8; --card: #fff; --text: #1c2630; --muted: #6b7885; --line: #dde3e8;
+    --accent: #1f7ae0; --ok: #1a9c5b; --warn: #d98a00; --bad: #d63a3a;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #11161b; --card: #1a2229; --text: #e6ebef; --muted: #8b98a4; --line: #2b353e; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+         font: 16px/1.5 system-ui, "Microsoft JhengHei", sans-serif; }
+  main { max-width: 900px; margin: 0 auto; padding: 16px; }
+  header { display: flex; flex-wrap: wrap; gap: 8px; align-items: baseline; justify-content: space-between; }
+  h1 { font-size: 1.3rem; margin: 0; }
+  .muted { color: var(--muted); font-size: .85rem; }
+  .badge { background: var(--warn); color: #fff; border-radius: 99px; padding: 2px 10px; font-size: .8rem; }
+  .grid { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); margin: 16px 0; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 14px; }
+  .card h2 { font-size: 1rem; margin: 0 0 4px; display: flex; justify-content: space-between; }
+  .bar { height: 10px; background: var(--line); border-radius: 99px; overflow: hidden; margin: 10px 0 4px; }
+  .bar > i { display: block; height: 100%; width: 0; background: var(--accent); transition: width .4s; }
+  .actions { display: flex; gap: 10px; flex-wrap: wrap; margin: 8px 0 16px; }
+  button { font: inherit; border: 0; border-radius: 10px; padding: 12px 18px; min-height: 48px;
+           background: var(--accent); color: #fff; cursor: pointer; }
+  button.stop { background: var(--bad); font-weight: 700; flex: 1; }
+  button.ghost { background: transparent; color: var(--accent); border: 1px solid var(--accent);
+                 min-height: 36px; padding: 6px 12px; }
+  button:disabled { opacity: .45; cursor: not-allowed; }
+  .state-idle { color: var(--muted); } .state-running { color: var(--accent); }
+  .state-estop { color: var(--bad); }
+  .job { border-top: 1px solid var(--line); padding: 10px 0; }
+  .job:first-child { border-top: 0; }
+  .job .row { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .stage-done { color: var(--ok); } .stage-stopped, .stage-cancelled { color: var(--bad); }
+  .stage-wait_move, .stage-wait_fold { color: var(--warn); }
+  details summary { cursor: pointer; color: var(--muted); font-size: .85rem; }
+  .alert { background: var(--bad); color: #fff; padding: 10px 14px; border-radius: 10px; margin-top: 12px; }
+  #toast { position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%); background: #000c;
+           color: #fff; padding: 8px 16px; border-radius: 8px; display: none; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>雨衣清洗摺衣站 <span id="sim" class="badge" hidden>模擬模式</span></h1>
+    <span class="muted" id="urls"></span>
+  </header>
+
+  <div id="estopBanner" class="alert" hidden>
+    緊急停止中。請先把摺板扶回原位，再按「解除緊急停止」。
+  </div>
+
+  <div class="actions">
+    <button id="start">放入雨衣・開始清洗</button>
+    <button id="reset" class="ghost" hidden>解除緊急停止</button>
+    <button id="estop" class="stop">緊急停止</button>
+  </div>
+
+  <h3>站點</h3>
+  <div class="grid" id="stations"></div>
+
+  <h3>任務</h3>
+  <div class="card" id="jobs"><span class="muted">還沒有任務</span></div>
+</main>
+<div id="toast"></div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const STATE_TEXT = { idle: "空閒", running: "運作中" };
+
+function toast(msg) {
+  const t = $("toast"); t.textContent = msg; t.style.display = "block";
+  clearTimeout(toast.h); toast.h = setTimeout(() => (t.style.display = "none"), 2500);
+}
+
+async function post(path) {
+  try {
+    const r = await fetch(path, { method: "POST" });
+    const j = await r.json();
+    if (!j.ok && j.error) toast(j.error);
+  } catch (e) { toast("連不到伺服器"); }
+  refresh();
+}
+
+function esc(s) { return String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c])); }
+
+function render(d) {
+  $("sim").hidden = !d.simulated;
+  $("urls").textContent = "手機網址：" + d.urls[d.urls.length - 1];
+  const estop = d.stations.some((s) => s.estop);
+  $("estopBanner").hidden = !estop;
+  $("reset").hidden = !estop;
+  $("start").disabled = estop || d.stations.find((s) => s.id === "wash").state !== "idle";
+
+  $("stations").innerHTML = d.stations.map((s) => {
+    const label = s.estop ? "緊急停止" : STATE_TEXT[s.state];
+    const cls = s.estop ? "estop" : s.state;
+    const pct = Math.round((s.progress || 0) * 100);
+    return `<div class="card"><h2>${esc(s.name)}<span class="state-${cls}">${label}</span></h2>
+      <div class="muted">${s.job ? "任務 #" + s.job + "　" + esc(s.detail || "") : "累計完成 " + s.count + " 件"}</div>
+      <div class="bar"><i style="width:${s.job ? pct : 0}%"></i></div>
+      ${s.job ? `<div class="muted">${pct}%　累計 ${s.count} 件</div>` : ""}</div>`;
+  }).join("");
+
+  if (!d.jobs.length) { $("jobs").innerHTML = '<span class="muted">還沒有任務</span>'; return; }
+  // 每秒重畫會把展開的「紀錄」收起來，先記住哪些是開的
+  const opened = new Set([...document.querySelectorAll("details[open]")].map((e) => e.dataset.id));
+  $("jobs").innerHTML = d.jobs.map((j) => {
+    const btns = [];
+    if (j.stage === "wait_move") btns.push(["move", "已移到摺衣站"]);
+    if (j.stage === "done" && !j.picked_up) btns.push(["pickup", "已取件"]);
+    if (j.stage === "stopped") btns.push(["retry", "重試"]);
+    if (!["done", "cancelled"].includes(j.stage)) btns.push(["cancel", "取消"]);
+    const log = j.log.map((l) => `${l.t} ${esc(l.text)}`).join("<br>");
+    return `<div class="job"><div class="row">
+      <div><b>#${j.id}</b>　<span class="stage-${j.stage}">${esc(j.text)}${j.picked_up ? "（已取件）" : ""}</span>
+      <span class="muted">　${j.created}</span></div>
+      <div>${btns.map(([a, t]) => `<button class="ghost" data-job="${j.id}" data-act="${a}">${t}</button>`).join(" ")}</div>
+      </div><details data-id="${j.id}" ${opened.has(String(j.id)) ? "open" : ""}><summary>紀錄</summary><div class="muted">${log}</div></details></div>`;
+  }).join("");
+}
+
+async function refresh() {
+  try { render(await (await fetch("/api/state")).json()); }
+  catch (e) { $("urls").textContent = "連不到伺服器…"; }
+}
+
+$("start").onclick = () => post("/api/jobs");
+$("estop").onclick = () => post("/api/estop");
+$("reset").onclick = () => post("/api/reset");
+$("jobs").onclick = (e) => {
+  const b = e.target.closest("button[data-job]");
+  if (b) post(`/api/jobs/${b.dataset.job}/${b.dataset.act}`);
+};
+
+refresh();
+setInterval(refresh, 1000);
+</script>
+</body>
+</html>
