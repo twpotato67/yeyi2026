@@ -84,7 +84,8 @@ def show(title, l1='', l2='', color=0xFFFFFF):
     lcd.print(l1, 10, 100)
     lcd.print(l2, 10, 140)
 
-MOTOR_NAME = ['Motor 1', 'Motor 2', 'Motor 3']
+MOTOR_NAME = ['Motor 1', 'Motor 2', 'Motor 3']   # 螢幕用（英文）
+MOTOR_ZH   = ['馬達一', '馬達二', '馬達三']       # 輸出視窗用（中文）
 
 def show_idle():
     show('READY', 'A: start folding', 'C: test mode')
@@ -139,7 +140,7 @@ def emergency_stop():
     stop_all()
     mode = STOPPED
     show('E-STOP', 'Put boards back', 'Press A to restart', 0xFF0000)
-    print('E-STOP')
+    print('緊急停止：請把摺板扶回原位，再按 A 重新開始')
 
 def wait_or_stop(ms):
     # 等待期間一直檢查 B 鍵，被急停回傳 False
@@ -156,7 +157,7 @@ def wait_or_stop(ms):
 
 def run_motor(m):
     name = MOTOR_NAME[m]
-    print(name, 'fold', FOLD_MS[m])
+    print(MOTOR_ZH[m], '翻起', FOLD_MS[m], 'ms')
     show(name + ' RUN', 'Folding...', 'B: emergency stop', 0xFFFF00)
     servo_pulse(m, NEUTRAL_US[m] + FOLD_DIR[m] * SPEED_US[m])
     if not wait_or_stop(FOLD_MS[m]):
@@ -165,6 +166,7 @@ def run_motor(m):
     if not wait_or_stop(HOLD_MS):
         return False
 
+    print(MOTOR_ZH[m], '放下', RETURN_MS[m], 'ms')
     show(name + ' RUN', 'Returning...', 'B: emergency stop', 0xFFFF00)
     servo_pulse(m, NEUTRAL_US[m] - FOLD_DIR[m] * SPEED_US[m])
     if not wait_or_stop(RETURN_MS[m]):
@@ -174,12 +176,14 @@ def run_motor(m):
 
 def run_fold_sequence():
     global mode
+    print('開始摺衣')
     for m in STEPS:
         if not run_motor(m):
             return
         if not wait_or_stop(PAUSE_MS):
             return
     mode = IDLE
+    print('摺衣完成')
     show('DONE!', 'A: fold again', 'C: test mode', 0x00FF00)
 
 def calibrate(m):
@@ -193,7 +197,7 @@ def calibrate(m):
     while True:
         servo_pulse(m, us)
         show(MOTOR_NAME[m] + ' CALIB', 'neutral: %d us' % us, 'A:-5 C:+5 B:exit', 0xFFA500)
-        print(MOTOR_NAME[m], 'neutral =', us)
+        print(MOTOR_ZH[m], '停止點 =', us, 'us')
         while True:
             if kA.fast_click():
                 us -= 5
@@ -215,9 +219,10 @@ try:
     pca_begin()
 except Exception as e:
     show('NO SERVO2', 'Check module stack', 'then reboot', 0xFF0000)
-    print('Servo2 error:', e)
+    print('找不到 Servo2（0x40），請檢查模組有沒有疊好，再重開機。錯誤：', e)
     while True:
         time.sleep_ms(1000)
+print('Servo2 正常，待機中')
 show_idle()
 
 while True:
