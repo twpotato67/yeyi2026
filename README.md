@@ -21,21 +21,17 @@
 | 測試模式 | A：換馬達 C：讓這顆轉一次 長按 A：停止點校正 長按 C：離開 |
 | 停止點校正 | A：-5us C：+5us B：離開 |
 
-## 開發環境（Windows）
+## 開發環境（UIFlow 1）
+
+韌體是 `uiflow/main.py`（MicroPython），用 UIFlow 1 上傳，螢幕只能顯示英文。
 
 1. 安裝 CH9102 驅動：<https://docs.m5stack.com/en/download>（找 CH9102_VCP_SER_Windows）
-2. 安裝 PlatformIO：`python -m pip install --user platformio`
-3. 用 USB-C 線接上 M5Stack，然後：
-
-```
-python -m platformio run                 # 編譯
-python -m platformio run -t upload       # 編譯＋上傳
-python -m platformio device monitor      # 看序列輸出（Ctrl+C 離開）
-```
+2. 用 USB-C 線接上 M5Stack，開 UIFlow 1 連上板子，選 **Python** 模式
+3. 把 `uiflow/main.py` 整份貼上，按下載（Download）
 
 ## 調整設定值
 
-所有設定都在 `src/main.cpp` 開頭的「設定值」區塊。
+所有設定都在 `uiflow/main.py` 開頭的「設定值」區塊，改完要重新貼上並下載。
 
 ### 1. 方向
 用測試模式讓每顆馬達轉一次。如果摺板往下壓而不是往上翻，就把那顆馬達的 `FOLD_DIR` 改成 `-1`。
