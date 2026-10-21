@@ -224,7 +224,9 @@ except Exception as e:
     print('找不到 Servo2（0x40），請檢查模組有沒有疊好，再重開機。錯誤：', e)
     while True:
         time.sleep_ms(1000)
-print('Servo2 正常，待機中')
+print('Servo2 正常，待機中（版本 2：每個畫面都有 B: stop）')
+show('FOLD BOARD', 'ver 2: B-stop footer', '', 0xFFFFFF)   # 開機畫面，確認板子上是新版
+time.sleep_ms(1500)
 show_idle()
 
 while True:
