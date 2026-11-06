@@ -28,6 +28,31 @@ def make_i2c():
 
 i2c = make_i2c()
 
+# 掃描 I2C，自動找 Servo2 位址（找不到就顯示出來，不當機）
+time.sleep_ms(500)
+found = []
+for _ in range(5):
+    try:
+        found = i2c.scan()
+    except Exception:
+        found = []
+    if found:
+        break
+    time.sleep_ms(200)
+cand = [a for a in found if 0x40 <= a <= 0x6F]
+if cand:
+    PCA_ADDR = cand[0]
+else:
+    lcd.clear(0x000000)
+    lcd.font(lcd.FONT_DejaVu18)
+    lcd.setTextColor(0xFF0000, 0x000000)
+    lcd.print('No Servo2 found', 10, 60)
+    lcd.setTextColor(0xFFFFFF, 0x000000)
+    lcd.print('scan: ' + str([hex(a) for a in found]), 10, 100)
+    lcd.print('unplug relay from PortA', 10, 140)
+    while True:
+        time.sleep(1)
+
 def pca_write(reg, data):
     i2c.writeto(PCA_ADDR, bytes([reg] + list(data)))
 
